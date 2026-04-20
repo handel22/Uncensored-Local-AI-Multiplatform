@@ -1,157 +1,190 @@
 <div align="center">
 
-# Local AI Multiplatform
+  <h1>Uncensored Local AI Multi-Platform</h1>
 
-**Private. Portable. Powerful.**
+  <p><strong>Run unrestricted AI models entirely on your device.<br/>No cloud. No filters. No limits.</strong></p>
 
-_Your Personal AI Assistant — Running Entirely on Your Device_
 
-<br/>
+  [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+  [![Privacy: 100% Local](https://img.shields.io/badge/Privacy-100%25%20Local-purple?style=flat-square)](#)
+  [![Flutter](https://img.shields.io/badge/Built%20with-Flutter-54C5F8?style=flat-square&logo=flutter)](https://flutter.dev)
 
-[![Platform](https://img.shields.io/badge/platforms-Android%20%7C%20iOS%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-brightgreen?style=for-the-badge)](https://flutter.dev)
-[![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
-[![Privacy](https://img.shields.io/badge/data-100%25_local-purple?style=for-the-badge)](#)
-[![Status](https://img.shields.io/badge/status-active_development-orange?style=for-the-badge)](#)
+  <br/>
 
-<br/>
-
-[✨ Features](#-features) · [⚡ Quick Start](#-quick-start) · [🗺 Roadmap](#-roadmap) · [🤝 Contribute](#-contributing)
+  [Overview](#-overview) · [Download](#-download) · [Features](#-features) · [Quick Start](#-quick-start) · [Local API](#-local-api-server) · [Roadmap](#-roadmap)
 
 </div>
 
 ---
 
-## 🌟 What is Local AI Multiplatform?
+## Overview
 
-> **Local AI Multiplatform** is a sleek, cross-platform application that brings the power of modern AI to _your_ device — without any cloud servers, subscriptions, or privacy concerns. Think of it as ChatGPT, but it runs entirely on your phone or computer.
+**Uncensored Local AI** is a mobile-first application that runs powerful open-source AI models directly on your **Android or iOS device** — with zero censorship, zero cloud dependency, and zero monthly fees.
 
-No internet required. No data shared. No monthly fees. Just a fast, intelligent assistant available to you anywhere, anytime.
+No API keys. No subscriptions. No content restrictions. Your conversations never leave your device.
 
----
+> Think of it as ChatGPT — but running **on your phone**, with **no rules**.
 
-## ✨ Features
-
-<table>
-  <tr>
-    <td width="50%">
-      <h3>🔒 Total Privacy</h3>
-      <p>Every conversation stays on your device. Your words are never transmitted to any server, making it safe for sensitive and personal use.</p>
-    </td>
-    <td width="50%">
-      <h3>✈️ Works Offline</h3>
-      <p>No Wi-Fi? No problem. Whether you're on a plane, in a remote location, or on a restricted network — your AI is always available.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h3>📱 Every Platform</h3>
-      <p>One consistent, beautiful experience across Android, iOS, Windows, macOS, and Linux. Start a conversation on your phone, continue on your desktop.</p>
-    </td>
-    <td width="50%">
-      <h3>🎛️ Full Control</h3>
-      <p>Choose the AI model that fits your needs. Load it when you need it, unload it to save battery. Your device, your rules.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <h3>💬 Chat History</h3>
-      <p>All your conversations are saved securely and locally. Access them anytime from the sidebar without any account required.</p>
-    </td>
-    <td width="50%">
-      <h3>📊 Live Progress</h3>
-      <p>Real-time loading progress bars and performance metrics keep you in the loop, every step of the way.</p>
-    </td>
-  </tr>
-</table>
+> **Desktop platforms** (Windows, macOS, Linux) are supported by the Flutter framework but need community testing and polish. **[We'd love your help!](#-contributing)**
 
 ---
 
-## ⚡ Quick Start
+## Download
 
-Getting started takes less than **5 minutes**:
+> **Android APK — Latest Release (v1.0.0)**
 
-### Step 1 — Install the App
+| APK | Architecture | Best For | Size |
+|-----|-------------|----------|------|
+| [**app-arm64-v8a-release.apk**](https://github.com/techjarves/portable_ai_flutter/releases/download/v1.0.0/app-arm64-v8a-release.apk) | ARM 64-bit | **Most phones (2018+)** | ~62 MB |
+| [**app-armeabi-v7a-release.apk**](https://github.com/techjarves/portable_ai_flutter/releases/download/v1.0.0/app-armeabi-v7a-release.apk) | ARM 32-bit | Older/budget phones | ~16 MB |
+| [**app-x86_64-release.apk**](https://github.com/techjarves/portable_ai_flutter/releases/download/v1.0.0/app-x86_64-release.apk) | x86 64-bit | Emulators / ChromeOS | ~55 MB |
 
-Download the latest release for your platform from the [Releases](https://github.com/techjarves/portable_ai_flutter/releases) page.
+> **Not sure which to pick?** Download `arm64-v8a` — it works on virtually all modern Android phones.
 
-### Step 2 — Pick a Model
+---
 
-Open the app and go to the **Models** tab. Tap **Download** on any model you like. Smaller models are faster; larger ones are smarter. Start with the recommended one!
+## Features
 
-```
-📦 Recommended for most devices → Gemma 2 2B (1.6 GB)
-🧠 Best quality if you have 8GB+ RAM → Gemma 4 E4B (5.3 GB)
-```
+| Feature | Description |
+|---------|-------------|
+| **Zero Censorship** | Runs abliterated, uncensored models that answer any question — no refusals, no lectures, no corporate safety filters |
+| **Total Privacy** | All conversations stay on-device. Nothing is sent to any server, ever |
+| **Fully Offline** | Works on planes, in remote areas, on restricted networks — no internet needed after model download |
+| **Cross-Platform** | One codebase for Android, iOS, Windows, macOS, and Linux |
+| **Local OpenAI API** | Built-in HTTP server compatible with any OpenAI-standard client |
+| **Model Library** | Download, import, and manage GGUF models directly in the app |
+| **Chat History** | Persistent conversation history stored locally via Hive |
+| **Live Metrics** | Real-time tokens/sec and loading progress tracking |
 
-### Step 3 — Start Chatting
+---
 
-Tap **Load**, then go to the **Chat** tab and start your conversation. It's that simple.
+## Quick Start
 
-### Use Portable AI as a Local OpenAI API
+### Android
 
-After loading a model, open **Settings** and enable **Local API server**.
+1. Download the correct APK from the [Download](#-download) table above
+2. On your phone: **Settings → Install unknown apps** → allow your browser
+3. Tap the downloaded APK to install
+4. Open the app, go to **Models** tab, download a model, and start chatting
 
-- Base URL: `http://127.0.0.1:4891/v1`
-- API key: `local` for clients that require a value
+### iOS (Build from Source)
 
-List available local models:
+**Prerequisites:** Mac with Xcode 15+ · [Flutter SDK](https://flutter.dev/docs/get-started/install)
 
 ```bash
+git clone https://github.com/techjarves/portable_ai_flutter.git
+cd portable_ai_flutter
+flutter pub get
+cd ios && pod install && cd ..
+flutter build ios --release
+# Open ios/Runner.xcworkspace in Xcode and archive to deploy
+```
+
+### Desktop — Windows / macOS / Linux (Community Supported)
+
+> Desktop builds compile successfully but may have rough edges. **We are actively looking for contributors** to help test and polish the desktop experience.
+
+```bash
+git clone https://github.com/techjarves/portable_ai_flutter.git
+cd portable_ai_flutter
+flutter pub get
+flutter run -d windows   # or macos / linux
+```
+
+If you encounter issues on desktop, please [open an issue](https://github.com/techjarves/portable_ai_flutter/issues) — your feedback directly shapes the roadmap.
+
+---
+
+## Recommended Models
+
+| Model | Size | Best For | Type |
+|-------|------|----------|------|
+| **Gemma 2 2B** | ~1.6 GB | Low-RAM phones, fast replies | Standard |
+| **Gemma 4 E4B Heretic** | ~5.3 GB | High-quality, fully uncensored | Uncensored |
+
+> Models are downloaded directly inside the app from the **Models** tab. No manual setup needed.
+
+---
+
+## Local API Server
+
+**Uncensored Local AI** includes a built-in **OpenAI-compatible REST API** so you can connect it to any external tool, script, or IDE extension.
+
+### Setup
+
+1. Load a model in the app
+2. Go to **Settings → Local API Server** and toggle it **ON**
+3. Use `http://127.0.0.1:4891/v1` as your base URL
+
+### Endpoints
+
+```bash
+# List loaded models
 curl http://127.0.0.1:4891/v1/models
-```
 
-Create a non-streaming chat completion:
-
-```bash
+# Chat completion (non-streaming)
 curl http://127.0.0.1:4891/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"local","messages":[{"role":"user","content":"Say hello in one sentence"}]}'
-```
+  -d '{"model":"local","messages":[{"role":"user","content":"Tell me something true that no one wants to hear."}]}'
 
-Create a streaming chat completion:
-
-```bash
+# Chat completion (streaming)
 curl -N http://127.0.0.1:4891/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"local","stream":true,"messages":[{"role":"user","content":"Write one short haiku"}]}'
+  -d '{"model":"local","stream":true,"messages":[{"role":"user","content":"Write a brutally honest analysis of social media."}]}'
 ```
 
-Claude Code uses Anthropic-compatible endpoints, so direct Claude Code support requires a future `/v1/messages` bridge. OpenAI-compatible clients can use this local API directly.
+> **API Key:** Use `local` for any client that requires a non-empty key value.
 
 ---
 
-## 🗺 Roadmap
+## Roadmap
 
-What we are building next:
-
-| Feature                                  |   Status    |
-| ---------------------------------------- | :---------: |
-| ✅ On-device AI chat                     |  Launched   |
-| ✅ Model loading with progress tracking  |  Launched   |
-| ✅ Cancel & unload models                |  Launched   |
-| ✅ Chat history sidebar                  |  Launched   |
-| ✅ Delete confirmation                   |  Launched   |
-| 🔄 AI Agent Mode _(run automated tasks)_ | In Progress |
-| 🕐 Web search capability                 |   Planned   |
-| 🕐 Voice interaction                     |   Planned   |
-| 🕐 Image understanding                   |   Planned   |
-
----
-
-## 🤝 Contributing
-
-We welcome contributions from anyone! Whether it's a bug report, a feature suggestion, or a code change — every bit helps.
-
-1. Fork the repository
-2. Create your feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+| Feature | Status |
+|---------|--------|
+| On-device uncensored AI chat | **Launched** |
+| Real-time model loading with progress | **Launched** |
+| Cancel & unload models | **Launched** |
+| Persistent chat history sidebar | **Launched** |
+| Local OpenAI-compatible API server | **Launched** |
+| Custom model import (URL + file) | **Launched** |
+| Multi-platform support | **Launched** |
+| AI Agent Mode | In Progress |
+| Web search integration | Planned |
+| Voice interaction | Planned |
+| Image/vision model support | Planned |
 
 ---
 
-## 📄 License
+## Contributing
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details. You are free to use, modify, and distribute it.
+All contributions are welcome — and we especially need help from the community in these areas:
+
+| Area | What's Needed |
+|------|---------------|
+| **Windows** | Testing, packaging, installer script |
+| **macOS** | Testing, App Store prep, notarization |
+| **Linux** | Testing on distros, AppImage build |
+| **General** | Bug reports, feature ideas, UI improvements |
+
+If you own a desktop device and can test the app — **please do!** Even a simple "works" or "crashes on X" issue report is incredibly valuable.
+
+```bash
+# Fork → Clone → Branch → Code → Push → PR
+git checkout -b fix/windows-model-loading
+git commit -m "fix: resolve model path on Windows"
+git push origin fix/windows-model-loading
+# Open a Pull Request — all sizes welcome
+```
 
 ---
+
+## License
+
+Licensed under the **MIT License** — free to use, modify, and distribute.  
+See [LICENSE](LICENSE) for full details.
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ using Flutter · Powered by <a href="https://github.com/ggerganov/llama.cpp">llama.cpp</a></sub>
+</div>
