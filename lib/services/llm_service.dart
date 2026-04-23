@@ -6,6 +6,8 @@ import 'package:llamadart/llamadart.dart';
 import 'package:path/path.dart' as p;
 
 import 'wakelock_service.dart';
+import 'chat_storage_service.dart';
+import 'log_service.dart';
 
 /// Wraps llamadart's LlamaEngine for model loading, generation, and lifecycle.
 class LlmService extends GetxService {
@@ -58,11 +60,18 @@ class LlmService extends GetxService {
 
   /// Load a GGUF model from [path] with progress tracking.
   Future<void> loadModel(String path) async {
+    LogService? log;
+    try { log = Get.find<LogService>(); } catch (_) {}
+
     // Verify file exists first
     final file = File(path);
     if (!await file.exists()) {
+      log?.error('Model file not found: $path', source: 'LLM');
       throw Exception('Model file not found: $path');
     }
+
+    final filename = p.basename(path);
+    log?.info('Loading model: $filename', source: 'LLM');
 
     _loadingCancelled = false;
     isLoadingModel.value = true;
@@ -98,6 +107,7 @@ class LlmService extends GetxService {
       _backend = null;
       _engine = null;
       _resetLoadingState();
+      log?.error('Engine init failed: $e', source: 'LLM');
       throw Exception(
         'Failed to initialize AI engine. '
         'This may be a device compatibility issue. '
@@ -142,15 +152,33 @@ class LlmService extends GetxService {
       // need 1024 to avoid the Low Memory Killer (LMK).
       final contextSize = Platform.isAndroid ? 1024 : 2048;
 
-      // Exclusively use CPU backend to strictly avoid any driver-level GPU init hangs.
+      // Map the string backend to GpuBackend enum
+      final storage = Get.find<ChatStorageService>();
+      GpuBackend parsedBackend;
+      switch (storage.backendType) {
+        case 'vulkan':
+          parsedBackend = GpuBackend.vulkan;
+          break;
+        case 'opencl':
+          parsedBackend = GpuBackend.opencl;
+          break;
+        default:
+          parsedBackend = GpuBackend.cpu;
+      }
+
+      // Read gpu layers
+      final userGpuLayers = storage.gpuLayers;
+
       // Optimize threads: 4 for both generation and batch processing to keep memory stable.
       final params = ModelParams(
         contextSize: contextSize,
-        gpuLayers: 0, 
-        preferredBackend: GpuBackend.cpu,
+        gpuLayers: userGpuLayers, 
+        preferredBackend: parsedBackend,
         numberOfThreads: Platform.numberOfProcessors > 4 ? 4 : 0, 
         numberOfThreadsBatch: Platform.numberOfProcessors > 4 ? 4 : 0,
       );
+
+      log?.info('Backend=$parsedBackend, GPU layers=$userGpuLayers, ctx=$contextSize, threads=${Platform.numberOfProcessors > 4 ? 4 : 0}', source: 'LLM');
 
       await _engine!.loadModel(path, modelParams: params);
       progressTimer.cancel();
@@ -166,6 +194,7 @@ class LlmService extends GetxService {
       loadingStatusMsg.value = 'Ready!';
       isLoaded.value = true;
       loadedModelPath.value = path;
+      log?.info('Model loaded successfully: $filename', source: 'LLM');
 
       // Enable wake lock for inference on mobile (keeps app from being killed)
       final modelName = p.basenameWithoutExtension(path);
@@ -177,6 +206,7 @@ class LlmService extends GetxService {
       isLoaded.value = false;
       loadedModelPath.value = '';
       await _fullTeardown();
+      log?.error('Model load failed: $e', source: 'LLM');
 
       // Provide a clearer error message for common Android failures
       if (Platform.isAndroid) {
@@ -369,6 +399,7 @@ class LlmService extends GetxService {
   Future<void> stopGeneration() async {
     _generateSub?.cancel();
     _generateSub = null;
+    _engine?.cancelGeneration();
     isGenerating.value = false;
   }
 

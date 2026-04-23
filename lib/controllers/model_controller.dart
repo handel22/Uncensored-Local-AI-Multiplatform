@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -7,6 +9,7 @@ import '../models/download_state.dart';
 import '../services/model_manager.dart';
 import '../services/llm_service.dart';
 import '../services/chat_storage_service.dart';
+import '../services/log_service.dart';
 
 class ModelController extends GetxController {
   final ModelManager _manager = Get.find<ModelManager>();
@@ -17,6 +20,7 @@ class ModelController extends GetxController {
   final selectedModelFilename = RxnString();
   final loadingModelFilename = RxnString(); // Track which one is currently loading
   final isLoadingModel = false.obs;
+  final isImportingModel = false.obs; // True when copying file from internal storage
   final loadingStatusMsg = ''.obs;
   final loadingProgress = 0.0.obs; // 0.0 to 1.0
   final loadError = ''.obs;
@@ -54,14 +58,22 @@ class ModelController extends GetxController {
 
   /// Download a model.
   Future<void> downloadModel(AiModelInfo model) async {
+    final confirmed = await _confirmLargeModel(model.sizeGb);
+    if (!confirmed) return;
+
+    LogService? log;
+    try { log = Get.find<LogService>(); } catch (_) {}
+    log?.info('Starting download: ${model.name} (${model.sizeGb} GB)', source: 'Download');
     try {
       await _manager.downloadModel(model);
+      log?.info('Download complete: ${model.name}', source: 'Download');
       Get.snackbar(
         'Download Complete',
         '${model.name} is ready!',
         snackPosition: SnackPosition.BOTTOM,
       );
     } catch (e) {
+      log?.error('Download failed: ${model.name} — $e', source: 'Download');
       Get.snackbar(
         'Download Failed',
         e.toString(),
@@ -113,6 +125,17 @@ class ModelController extends GetxController {
 
     try {
       final path = _manager.getModelPathByFilename(filename);
+      final file = File(path);
+      
+      if (await file.exists()) {
+        final sizeGb = (await file.length()) / (1024 * 1024 * 1024);
+        final confirmed = await _confirmLargeModel(sizeGb);
+        if (!confirmed) {
+          cancelLoadModel();
+          return;
+        }
+      }
+
       await _llm.loadModel(path);
 
       // Check if loading was cancelled
@@ -124,6 +147,9 @@ class ModelController extends GetxController {
       _storage.lastModelId = filename;
     } catch (e) {
       loadError.value = e.toString();
+      LogService? log;
+      try { log = Get.find<LogService>(); } catch (_) {}
+      log?.error('Load failed: $filename — $e', source: 'Model');
       Get.snackbar(
         'Load Failed',
         e.toString(),
@@ -145,6 +171,13 @@ class ModelController extends GetxController {
     loadingProgress.value = 0.0;
     loadingModelFilename.value = null;
   }
+  
+  void cancelImport() {
+    isImportingModel.value = false;
+    loadingStatusMsg.value = '';
+    loadingProgress.value = 0.0;
+    loadingModelFilename.value = null;
+  }
 
   /// Unload current model and free memory.
   Future<void> unloadCurrentModel() async {
@@ -152,20 +185,102 @@ class ModelController extends GetxController {
     // Don't clear selectedModelFilename so the user can easily re-load
   }
 
-  /// Unload current model.
   Future<void> unloadModel() async {
     await _llm.unloadModel();
     selectedModelFilename.value = null;
   }
 
+  /// Clear the temporary file cache used by FilePicker.
+  Future<void> clearCache() async {
+    try {
+      await FilePicker.platform.clearTemporaryFiles();
+      Get.snackbar(
+        'Cache Cleared',
+        'Temporary files have been removed.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } catch (e) {
+      Get.snackbar(
+        'Clear Failed',
+        e.toString(),
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
+  }
+
+  Timer? _pulseTimer;
+  final _pulseMessages = [
+    'System is caching the file. Please wait...',
+    'Android is preparing the model...',
+    'Almost there, checking file integrity...',
+    'Allocating temporary space...',
+    'Wrapping up system preparation...',
+  ];
+  int _pulseIndex = 0;
+
+  void _startCachingPulse() {
+    _stopCachingPulse();
+    _pulseIndex = 0;
+    loadingStatusMsg.value = _pulseMessages[0];
+    _pulseTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      _pulseIndex = (_pulseIndex + 1) % _pulseMessages.length;
+      loadingStatusMsg.value = _pulseMessages[_pulseIndex];
+    });
+  }
+
+  void _stopCachingPulse() {
+    _pulseTimer?.cancel();
+    _pulseTimer = null;
+  }
+
+  Future<bool> _confirmLargeModel(double sizeGb) async {
+    if (sizeGb < 3.5) return true; // Safe size for most devices
+
+    final completer = Completer<bool>();
+    Get.defaultDialog(
+      title: 'Large Model Warning',
+      titlePadding: const EdgeInsets.only(top: 20, left: 20, right: 20),
+      contentPadding: const EdgeInsets.all(20),
+      middleText: 'This model is ${sizeGb.toStringAsFixed(1)} GB.\n\nDevices with less than 8GB of RAM may crash or run out of storage while processing this model.\n\nAre you sure you want to proceed?',
+      textConfirm: 'Proceed',
+      textCancel: 'Cancel',
+      confirmTextColor: Colors.white,
+      buttonColor: Colors.orange,
+      cancelTextColor: Colors.orange,
+      onConfirm: () {
+        Get.back();
+        completer.complete(true);
+      },
+      onCancel: () {
+        completer.complete(false);
+      },
+    );
+    return completer.future;
+  }
+
   /// Import a .gguf file via file picker.
   Future<void> importModelFromFile() async {
     try {
-      final result = await FilePicker.platform.pickFiles(type: FileType.any);
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        onFileLoading: (FilePickerStatus status) {
+          if (status == FilePickerStatus.picking) {
+            // The file picker is caching the file to local storage.
+            // This blocks the result for large files, so we show the UI early!
+            loadingModelFilename.value = 'Selected File';
+            isImportingModel.value = true;
+            loadingProgress.value = 0.0; // Spinner mode
+            _startCachingPulse();
+          }
+        },
+      );
 
-      if (result != null && result.files.single.path != null) {
-        final path = result.files.single.path!;
-        if (!path.endsWith('.gguf')) {
+      if (result != null && result.files.isNotEmpty) {
+        _stopCachingPulse();
+        final file = result.files.single;
+        final name = file.name;
+        
+        if (!name.endsWith('.gguf')) {
           Get.snackbar(
             'Invalid File',
             'Please select a .gguf model file.',
@@ -173,7 +288,51 @@ class ModelController extends GetxController {
           );
           return;
         }
-        await _manager.importModel(path);
+
+        final sizeGb = file.size / (1024 * 1024 * 1024);
+        final confirmed = await _confirmLargeModel(sizeGb);
+        if (!confirmed) return;
+
+        loadingModelFilename.value = name;
+        isImportingModel.value = true;
+        loadingStatusMsg.value = 'Moving to models folder...';
+        loadingProgress.value = 0.0;
+
+        if (file.path != null) {
+          // Instant move (rename) instead of slow stream copy
+          await _manager.moveModel(file.path!, name);
+        } else if (file.readStream != null) {
+          // Stream if path is somehow null
+          await _manager.importModelFromStream(
+            filename: name,
+            stream: file.readStream!,
+            totalBytes: file.size,
+            onProgress: (p) => loadingProgress.value = p,
+            checkCancelled: () => !isImportingModel.value,
+          );
+        }
+
+        if (!isImportingModel.value) return; // Cancelled
+
+        // Check if a model with this filename already exists in the catalog
+        final exists = _manager.catalog.any((m) => m.filename == name);
+        
+        if (!exists) {
+          // Add to catalog so it shows up in the UI
+          final customModel = AiModelInfo(
+            id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+            name: name.replaceAll('.gguf', ''),
+            filename: name,
+            url: 'local',
+            sizeGb: sizeGb,
+            minRamGb: 0,
+            label: 'CUSTOM',
+            badge: 'LOCAL',
+            systemPrompt: 'You are a helpful AI assistant.',
+          );
+          _manager.addCustomModel(customModel);
+        }
+
         Get.snackbar(
           'Import Complete',
           'Model imported successfully!',
@@ -186,6 +345,17 @@ class ModelController extends GetxController {
         e.toString(),
         snackPosition: SnackPosition.BOTTOM,
       );
+    } finally {
+      _stopCachingPulse();
+      isImportingModel.value = false;
+      loadingStatusMsg.value = '';
+      loadingProgress.value = 0.0;
+      loadingModelFilename.value = null;
+
+      // Clean up the massive file_picker cache
+      try {
+        await FilePicker.platform.clearTemporaryFiles();
+      } catch (_) {}
     }
   }
 
@@ -211,8 +381,45 @@ class ModelController extends GetxController {
       }
 
       int imported = 0;
-      for (final file in ggufFiles) {
-        await _manager.importModel(file.path);
+      for (int i = 0; i < ggufFiles.length; i++) {
+        final file = ggufFiles[i] as File;
+        
+        final sizeGb = (await file.length()) / (1024 * 1024 * 1024);
+        final confirmed = await _confirmLargeModel(sizeGb);
+        if (!confirmed) continue;
+
+        loadingModelFilename.value = file.uri.pathSegments.last;
+        isImportingModel.value = true;
+        loadingStatusMsg.value = 'Importing ${i + 1} of ${ggufFiles.length}...';
+        loadingProgress.value = 0.0;
+
+        await _manager.importModel(
+          file.path,
+          onProgress: (p) => loadingProgress.value = p,
+          checkCancelled: () => !isImportingModel.value,
+        );
+        
+        if (!isImportingModel.value) return; // Cancelled
+        
+        final fileName = file.uri.pathSegments.last;
+        final exists = _manager.catalog.any((m) => m.filename == fileName);
+
+        if (!exists) {
+          // Add to catalog so it shows up in the UI
+          final customModel = AiModelInfo(
+            id: 'custom_${DateTime.now().millisecondsSinceEpoch}_$i',
+            name: fileName.replaceAll('.gguf', ''),
+            filename: fileName,
+            url: 'local',
+            sizeGb: sizeGb,
+            minRamGb: 0,
+            label: 'CUSTOM',
+            badge: 'LOCAL',
+            systemPrompt: 'You are a helpful AI assistant.',
+          );
+          _manager.addCustomModel(customModel);
+        }
+        
         imported++;
       }
 
@@ -227,6 +434,11 @@ class ModelController extends GetxController {
         e.toString(),
         snackPosition: SnackPosition.BOTTOM,
       );
+    } finally {
+      isImportingModel.value = false;
+      loadingStatusMsg.value = '';
+      loadingProgress.value = 0.0;
+      loadingModelFilename.value = null;
     }
   }
 

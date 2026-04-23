@@ -249,13 +249,123 @@ class ModelManager extends GetxService {
     downloadedModels.remove(filename);
   }
 
-  /// Import a model file from external path.
-  Future<void> importModel(String sourcePath) async {
+  /// Move a model file from cache to the models directory (instant on most file systems).
+  Future<void> moveModel(String sourcePath, String filename) async {
+    final destPath = p.join(_modelsDir, filename);
+    if (sourcePath == destPath) return;
+
+    final sourceFile = File(sourcePath);
+    if (!await sourceFile.exists()) return;
+
+    // Try to move the file instantly (rename)
+    try {
+      await sourceFile.rename(destPath);
+    } catch (e) {
+      // Fallback to copy if rename fails (e.g. across different partitions)
+      await sourceFile.copy(destPath);
+      await sourceFile.delete();
+    }
+
+    if (!downloadedModels.contains(filename)) {
+      downloadedModels.add(filename);
+    }
+  }
+
+  /// Import a model directly from a stream (useful to bypass FilePicker caching on Android/iOS).
+  Future<void> importModelFromStream({
+    required String filename,
+    required Stream<List<int>> stream,
+    required int totalBytes,
+    Function(double)? onProgress,
+    bool Function()? checkCancelled,
+  }) async {
+    final destPath = p.join(_modelsDir, filename);
+    final destFile = File(destPath);
+    
+    final sink = destFile.openWrite();
+    int copiedBytes = 0;
+    bool wasCancelled = false;
+
+    try {
+      final mappedStream = stream.map((chunk) {
+        if (checkCancelled?.call() == true) {
+          throw const FormatException('CANCELLED');
+        }
+        copiedBytes += chunk.length;
+        if (totalBytes > 0) {
+          onProgress?.call(copiedBytes / totalBytes);
+        }
+        return chunk;
+      });
+      await sink.addStream(mappedStream);
+    } on FormatException catch (e) {
+      if (e.message == 'CANCELLED') {
+        wasCancelled = true;
+      } else {
+        rethrow;
+      }
+    } finally {
+      await sink.flush();
+      await sink.close();
+    }
+
+    if (wasCancelled) {
+      if (await destFile.exists()) {
+        await destFile.delete();
+      }
+      return;
+    }
+
+    if (!downloadedModels.contains(filename)) {
+      downloadedModels.add(filename);
+    }
+  }
+
+  /// Import a model file from external path with progress tracking.
+  Future<void> importModel(String sourcePath, {Function(double)? onProgress, bool Function()? checkCancelled}) async {
     final filename = p.basename(sourcePath);
     final destPath = p.join(_modelsDir, filename);
 
     if (sourcePath != destPath) {
-      await File(sourcePath).copy(destPath);
+      final sourceFile = File(sourcePath);
+      final destFile = File(destPath);
+      
+      final totalBytes = await sourceFile.length();
+      if (totalBytes == 0) return;
+
+      final sourceStream = sourceFile.openRead();
+      final sink = destFile.openWrite();
+
+      int copiedBytes = 0;
+      bool wasCancelled = false;
+
+      try {
+        final mappedStream = sourceStream.map((chunk) {
+          if (checkCancelled?.call() == true) {
+            throw const FormatException('CANCELLED');
+          }
+          copiedBytes += chunk.length;
+          onProgress?.call(copiedBytes / totalBytes);
+          return chunk;
+        });
+        await sink.addStream(mappedStream);
+      } on FormatException catch (e) {
+        if (e.message == 'CANCELLED') {
+          wasCancelled = true;
+        } else {
+          rethrow;
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+
+      if (wasCancelled) {
+        if (await destFile.exists()) {
+          await destFile.delete();
+        }
+        return;
+      }
     }
 
     if (!downloadedModels.contains(filename)) {

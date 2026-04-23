@@ -5,9 +5,11 @@ import 'package:get/get.dart';
 import '../theme/app_colors.dart';
 import '../controllers/chat_controller.dart';
 import '../controllers/theme_controller.dart';
+import '../controllers/model_controller.dart';
 import '../services/local_api_server_service.dart';
 import '../services/model_manager.dart';
 import '../services/background_optimizer_service.dart';
+import '../services/chat_storage_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   /// When true, no Scaffold — just the body content for embedding in tabs.
@@ -38,6 +40,7 @@ class _SettingsBody extends StatelessWidget {
     final modelManager = Get.find<ModelManager>();
     final themeCtrl = Get.find<ThemeController>();
     final apiServer = Get.find<LocalApiServerService>();
+    final storage = Get.find<ChatStorageService>();
 
     return Column(
       children: [
@@ -271,6 +274,13 @@ class _SettingsBody extends StatelessWidget {
                   ),
                 ),
               ),
+
+              const SizedBox(height: 28),
+
+              // ── Hardware Configuration ──────────────────────────
+              _sectionHeader(context, 'Hardware Configuration'),
+              const SizedBox(height: 8),
+              _HardwareSettingsCard(storage: storage),
 
               const SizedBox(height: 28),
 
@@ -619,6 +629,25 @@ class _SettingsBody extends StatelessWidget {
                 ),
               ),
 
+              const SizedBox(height: 12),
+              
+              OutlinedButton.icon(
+                icon: const Icon(Icons.cleaning_services_rounded, size: 18),
+                label: const Text(
+                  'Clear Temporary Cache',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                onPressed: () => Get.find<ModelController>().clearCache(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: context.text,
+                  side: BorderSide(color: context.border),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 40),
 
               // ── About ─────────────────────────────────────
@@ -641,6 +670,42 @@ class _SettingsBody extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 28),
+
+              // ── App Logs ──────────────────────────────────
+              _sectionHeader(context, 'Debugging'),
+              const SizedBox(height: 8),
+              _card(
+                context,
+                child: ListTile(
+                  leading: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.article_outlined,
+                        size: 18, color: AppColors.orange),
+                  ),
+                  title: Text(
+                    'App Logs',
+                    style: TextStyle(color: context.text, fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    'View logs, errors & share with developers',
+                    style: TextStyle(color: context.textD, fontSize: 12),
+                  ),
+                  trailing: Icon(Icons.arrow_forward_ios_rounded,
+                      size: 14, color: context.textD),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  onTap: () => Get.toNamed('/logs'),
+                ),
+              ),
+
               const SizedBox(height: 32),
             ],
           ),
@@ -691,3 +756,291 @@ class _SettingsBody extends StatelessWidget {
     );
   }
 }
+
+class _HardwareSettingsCard extends StatefulWidget {
+  final ChatStorageService storage;
+
+  const _HardwareSettingsCard({required this.storage});
+
+  @override
+  State<_HardwareSettingsCard> createState() => _HardwareSettingsCardState();
+}
+
+class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
+  late String _backend;
+  late double _gpuLayers;
+  bool _showManual = false;
+
+  // Auto-detect the best backend and GPU layers for this device
+  static Map<String, dynamic> _detectBestConfig() {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      // Desktop: CPU is safest, Vulkan if available
+      return {'backend': 'cpu', 'gpuLayers': 0, 'reason': 'CPU mode — most compatible on desktop'};
+    }
+
+    // Android/iOS: detect available RAM and processor count
+    final cores = Platform.numberOfProcessors;
+    
+    if (cores >= 8) {
+      // High-end device (e.g. Snapdragon 8 Gen 2+, Dimensity 9000+)
+      return {
+        'backend': 'opencl',
+        'gpuLayers': 33,
+        'reason': 'OpenCL GPU — best for high-end SoC ($cores cores detected)',
+      };
+    } else if (cores >= 6) {
+      // Mid-range device
+      return {
+        'backend': 'cpu',
+        'gpuLayers': 0,
+        'reason': 'CPU mode — safe for mid-range devices ($cores cores)',
+      };
+    } else {
+      // Low-end device
+      return {
+        'backend': 'cpu',
+        'gpuLayers': 0,
+        'reason': 'CPU mode — optimized for lower-end devices ($cores cores)',
+      };
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _backend = widget.storage.backendType;
+    _gpuLayers = widget.storage.gpuLayers.toDouble();
+  }
+
+  void _applyAutoConfig() {
+    final config = _detectBestConfig();
+    setState(() {
+      _backend = config['backend'] as String;
+      _gpuLayers = (config['gpuLayers'] as int).toDouble();
+    });
+    widget.storage.backendType = _backend;
+    widget.storage.gpuLayers = _gpuLayers.toInt();
+    Get.snackbar(
+      'Auto Config Applied',
+      config['reason'] as String,
+      snackPosition: SnackPosition.BOTTOM,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  void _saveBackend(String val) {
+    setState(() => _backend = val);
+    widget.storage.backendType = val;
+    // Auto-set sensible GPU layers when switching
+    if (val == 'cpu') {
+      setState(() => _gpuLayers = 0);
+      widget.storage.gpuLayers = 0;
+    } else if (_gpuLayers == 0) {
+      setState(() => _gpuLayers = 33);
+      widget.storage.gpuLayers = 33;
+    }
+  }
+
+  void _saveGpuLayers(double val) {
+    setState(() => _gpuLayers = val);
+    widget.storage.gpuLayers = val.toInt();
+  }
+
+  String get _currentConfigLabel {
+    switch (_backend) {
+      case 'vulkan':
+        return 'GPU (Vulkan) • ${_gpuLayers.toInt()} layers';
+      case 'opencl':
+        return 'GPU (OpenCL) • ${_gpuLayers.toInt()} layers';
+      default:
+        return 'CPU Only';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final autoConfig = _detectBestConfig();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: context.bgPanel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.border),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Recommended Auto Config ──
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 18, color: AppColors.accent),
+              const SizedBox(width: 8),
+              Text(
+                'Compute Device',
+                style: TextStyle(color: context.text, fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Current: $_currentConfigLabel',
+            style: TextStyle(color: context.textM, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+
+          // Recommended button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _applyAutoConfig,
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: const Text('Apply Recommended Settings'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: AppColors.accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    autoConfig['reason'] as String,
+                    style: TextStyle(color: context.textM, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Manual Override Toggle ──
+          InkWell(
+            onTap: () => setState(() => _showManual = !_showManual),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    _showManual ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: context.textM,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Manual Override',
+                    style: TextStyle(
+                      color: context.textM,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          if (_showManual) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _buildBackendButton('CPU', 'cpu'),
+                const SizedBox(width: 8),
+                _buildBackendButton('Vulkan', 'vulkan'),
+                const SizedBox(width: 8),
+                _buildBackendButton('OpenCL', 'opencl'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'GPU Layers',
+                  style: TextStyle(color: context.text, fontSize: 14),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: context.bgInput,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _gpuLayers.toInt().toString(),
+                    style: TextStyle(color: context.text, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: AppColors.accent,
+                inactiveTrackColor: context.border,
+                thumbColor: AppColors.accent,
+                overlayColor: AppColors.accent.withValues(alpha: 0.2),
+              ),
+              child: Slider(
+                value: _gpuLayers,
+                min: 0,
+                max: 99,
+                divisions: 99,
+                onChanged: _backend == 'cpu' ? null : _saveGpuLayers,
+              ),
+            ),
+            Text(
+              'If the app crashes when loading a model, reduce GPU layers or switch to CPU. Reload the model after changing settings.',
+              style: TextStyle(color: context.textD, fontSize: 11, height: 1.4),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBackendButton(String label, String value) {
+    final selected = _backend == value;
+    return Expanded(
+      child: InkWell(
+        onTap: () => _saveBackend(value),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accent : context.bgInput,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? AppColors.accent : context.border,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : context.text,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+

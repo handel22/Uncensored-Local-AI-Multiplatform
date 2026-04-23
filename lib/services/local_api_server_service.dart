@@ -82,7 +82,8 @@ class LocalApiServerService extends GetxService {
       _server = null;
       isRunning.value = false;
       errorMessage.value = e.toString();
-      rethrow;
+      // Do not rethrow here, so that app initialization can continue 
+      // even if the local API server fails to bind.
     } finally {
       isStarting.value = false;
     }

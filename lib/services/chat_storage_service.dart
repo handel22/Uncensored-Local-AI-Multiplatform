@@ -95,4 +95,16 @@ class ChatStorageService extends GetxService {
 
   set localApiAllInterfaces(bool value) =>
       _settingsBox.put('local_api_all_interfaces', value);
+
+  // ── Hardware Settings ──────────────────────────────────────
+
+  int get gpuLayers =>
+      (_settingsBox.get('gpu_layers', defaultValue: 0) as num).toInt();
+
+  set gpuLayers(int value) => _settingsBox.put('gpu_layers', value);
+
+  String get backendType =>
+      _settingsBox.get('backend_type', defaultValue: 'cpu') as String;
+
+  set backendType(String value) => _settingsBox.put('backend_type', value);
 }
