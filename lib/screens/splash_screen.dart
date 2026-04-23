@@ -7,6 +7,9 @@ import '../services/llm_service.dart';
 import '../services/model_manager.dart';
 import '../services/chat_storage_service.dart';
 import '../services/local_api_server_service.dart';
+import '../services/wakelock_service.dart';
+import '../services/log_service.dart';
+import '../services/background_optimizer_service.dart';
 import '../routes/app_routes.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -27,24 +30,44 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initApp() async {
     try {
+      // Initialize logging first
+      final log = Get.find<LogService>()..init();
+
       setState(() => _status = 'Setting up storage...');
+      log.info('Initializing storage...', source: 'Splash');
       await Get.find<ChatStorageService>().init();
 
       setState(() => _status = 'Loading model catalog...');
+      log.info('Loading model catalog...', source: 'Splash');
       await Get.find<ModelManager>().init();
 
       setState(() => _status = 'Preparing AI engine...');
+      log.info('Preparing AI engine...', source: 'Splash');
       await Get.find<LlmService>().init();
 
       setState(() => _status = 'Preparing local API...');
+      log.info('Preparing local API...', source: 'Splash');
       await Get.find<LocalApiServerService>().init();
 
+      setState(() => _status = 'Setting up background services...');
+      log.info('Setting up background services...', source: 'Splash');
+      await Get.find<WakelockService>().init();
+
       setState(() => _status = 'Ready!');
+      log.info('All services initialized successfully', source: 'Splash');
       await Future.delayed(const Duration(milliseconds: 500));
+
+      // Prompt for battery optimization on Android (first launch only)
+      if (mounted) {
+        await BackgroundOptimizerService.checkAndPrompt(context);
+      }
 
       Get.offAllNamed(AppRoutes.home);
     } catch (e) {
       setState(() => _status = 'Error: $e');
+      try {
+        Get.find<LogService>().error('Init failed: $e', source: 'Splash');
+      } catch (_) {}
     }
   }
 

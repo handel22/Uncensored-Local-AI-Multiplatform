@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
@@ -9,6 +10,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/ai_model_info.dart';
 import '../models/download_state.dart';
+import 'wakelock_service.dart';
 
 /// Manages model catalog, downloads, and local file discovery.
 class ModelManager extends GetxService {
@@ -113,10 +115,20 @@ class ModelManager extends GetxService {
   }
 
   /// Download a model with real-time speed tracking.
+  /// Enables wake lock + foreground service to keep download alive.
   Future<void> downloadModel(AiModelInfo model) async {
     if (isDownloading(model.filename)) return;
 
-    // Initialize download state
+    // Enable wake lock + foreground service for download (fire and forget so UI updates instantly)
+    WakelockService? wakelockService;
+    try {
+      wakelockService = Get.find<WakelockService>();
+      wakelockService.enableForDownload(modelName: model.name);
+    } catch (e) {
+      debugPrint('WakelockService not available: $e');
+    }
+
+    // Initialize download state instantly
     activeDownloads[model.filename] = DownloadState(
       filename: model.filename,
       totalBytes: model.sizeGb * 1024 * 1024 * 1024,
@@ -170,6 +182,17 @@ class ModelManager extends GetxService {
           lastSpeedCheck = stopwatch.elapsedMilliseconds;
           lastSpeedBytes = receivedBytes;
           _notifyUI(); // trigger rebuild
+
+          // Update foreground notification with progress
+          if (wakelockService != null && state.totalBytes > 0) {
+            final progress = state.receivedBytes / state.totalBytes;
+            final speedMb = (state.speedBytesPerSec / (1024 * 1024)).toStringAsFixed(1);
+            wakelockService.updateDownloadProgress(
+              modelName: model.name,
+              progress: progress,
+              speedText: '$speedMb MB/s',
+            );
+          }
         }
       }
 
@@ -195,6 +218,13 @@ class ModelManager extends GetxService {
     } finally {
       _httpClient?.close();
       _httpClient = null;
+
+      // Disable wake lock if no other downloads are active
+      if (activeDownloads.isEmpty) {
+        try {
+          await wakelockService?.disable();
+        } catch (_) {}
+      }
     }
   }
 
@@ -219,13 +249,123 @@ class ModelManager extends GetxService {
     downloadedModels.remove(filename);
   }
 
-  /// Import a model file from external path.
-  Future<void> importModel(String sourcePath) async {
+  /// Move a model file from cache to the models directory (instant on most file systems).
+  Future<void> moveModel(String sourcePath, String filename) async {
+    final destPath = p.join(_modelsDir, filename);
+    if (sourcePath == destPath) return;
+
+    final sourceFile = File(sourcePath);
+    if (!await sourceFile.exists()) return;
+
+    // Try to move the file instantly (rename)
+    try {
+      await sourceFile.rename(destPath);
+    } catch (e) {
+      // Fallback to copy if rename fails (e.g. across different partitions)
+      await sourceFile.copy(destPath);
+      await sourceFile.delete();
+    }
+
+    if (!downloadedModels.contains(filename)) {
+      downloadedModels.add(filename);
+    }
+  }
+
+  /// Import a model directly from a stream (useful to bypass FilePicker caching on Android/iOS).
+  Future<void> importModelFromStream({
+    required String filename,
+    required Stream<List<int>> stream,
+    required int totalBytes,
+    Function(double)? onProgress,
+    bool Function()? checkCancelled,
+  }) async {
+    final destPath = p.join(_modelsDir, filename);
+    final destFile = File(destPath);
+    
+    final sink = destFile.openWrite();
+    int copiedBytes = 0;
+    bool wasCancelled = false;
+
+    try {
+      final mappedStream = stream.map((chunk) {
+        if (checkCancelled?.call() == true) {
+          throw const FormatException('CANCELLED');
+        }
+        copiedBytes += chunk.length;
+        if (totalBytes > 0) {
+          onProgress?.call(copiedBytes / totalBytes);
+        }
+        return chunk;
+      });
+      await sink.addStream(mappedStream);
+    } on FormatException catch (e) {
+      if (e.message == 'CANCELLED') {
+        wasCancelled = true;
+      } else {
+        rethrow;
+      }
+    } finally {
+      await sink.flush();
+      await sink.close();
+    }
+
+    if (wasCancelled) {
+      if (await destFile.exists()) {
+        await destFile.delete();
+      }
+      return;
+    }
+
+    if (!downloadedModels.contains(filename)) {
+      downloadedModels.add(filename);
+    }
+  }
+
+  /// Import a model file from external path with progress tracking.
+  Future<void> importModel(String sourcePath, {Function(double)? onProgress, bool Function()? checkCancelled}) async {
     final filename = p.basename(sourcePath);
     final destPath = p.join(_modelsDir, filename);
 
     if (sourcePath != destPath) {
-      await File(sourcePath).copy(destPath);
+      final sourceFile = File(sourcePath);
+      final destFile = File(destPath);
+      
+      final totalBytes = await sourceFile.length();
+      if (totalBytes == 0) return;
+
+      final sourceStream = sourceFile.openRead();
+      final sink = destFile.openWrite();
+
+      int copiedBytes = 0;
+      bool wasCancelled = false;
+
+      try {
+        final mappedStream = sourceStream.map((chunk) {
+          if (checkCancelled?.call() == true) {
+            throw const FormatException('CANCELLED');
+          }
+          copiedBytes += chunk.length;
+          onProgress?.call(copiedBytes / totalBytes);
+          return chunk;
+        });
+        await sink.addStream(mappedStream);
+      } on FormatException catch (e) {
+        if (e.message == 'CANCELLED') {
+          wasCancelled = true;
+        } else {
+          rethrow;
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+
+      if (wasCancelled) {
+        if (await destFile.exists()) {
+          await destFile.delete();
+        }
+        return;
+      }
     }
 
     if (!downloadedModels.contains(filename)) {

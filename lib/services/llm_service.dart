@@ -1,8 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:path/path.dart' as p;
+
+import 'wakelock_service.dart';
+import 'chat_storage_service.dart';
+import 'log_service.dart';
 
 /// Wraps llamadart's LlamaEngine for model loading, generation, and lifecycle.
 class LlmService extends GetxService {
@@ -55,16 +60,29 @@ class LlmService extends GetxService {
 
   /// Load a GGUF model from [path] with progress tracking.
   Future<void> loadModel(String path) async {
+    LogService? log;
+    try { log = Get.find<LogService>(); } catch (_) {}
+
     // Verify file exists first
     final file = File(path);
     if (!await file.exists()) {
+      log?.error('Model file not found: $path', source: 'LLM');
       throw Exception('Model file not found: $path');
     }
+
+    final filename = p.basename(path);
+    log?.info('Loading model: $filename', source: 'LLM');
 
     _loadingCancelled = false;
     isLoadingModel.value = true;
     loadingProgress.value = 0.0;
     loadingStatusMsg.value = 'Preparing...';
+
+    // Enable wake lock during model loading (heavy memory operation)
+    WakelockService? wakelockService;
+    try {
+      wakelockService = Get.find<WakelockService>();
+    } catch (_) {}
 
     // Unload previous if any — MUST fully tear down engine + backend
     if (_engine != null || isLoaded.value) {
@@ -80,8 +98,22 @@ class LlmService extends GetxService {
     }
 
     // Fresh backend + engine for every load — prevents stale native state
-    _backend = LlamaBackend();
-    _engine = LlamaEngine(_backend!);
+    // Wrapped in try-catch to handle SELinux crashes on Android where
+    // ggml_backend_load_all() attempts to scan '/' which is denied.
+    try {
+      _backend = LlamaBackend();
+      _engine = LlamaEngine(_backend!);
+    } catch (e) {
+      _backend = null;
+      _engine = null;
+      _resetLoadingState();
+      log?.error('Engine init failed: $e', source: 'LLM');
+      throw Exception(
+        'Failed to initialize AI engine. '
+        'This may be a device compatibility issue. '
+        'Error: $e',
+      );
+    }
 
     try {
       loadingStatusMsg.value = 'Loading into memory...';
@@ -115,16 +147,38 @@ class LlmService extends GetxService {
         return;
       }
 
-      // Exclusively use CPU backend to strictly avoid any driver-level GPU init hangs.
+      // Use smaller context on Android to prevent OOM kills.
+      // Desktop can handle 2048, but Android devices with limited RAM
+      // need 1024 to avoid the Low Memory Killer (LMK).
+      final contextSize = Platform.isAndroid ? 1024 : 2048;
+
+      // Map the string backend to GpuBackend enum
+      final storage = Get.find<ChatStorageService>();
+      GpuBackend parsedBackend;
+      switch (storage.backendType) {
+        case 'vulkan':
+          parsedBackend = GpuBackend.vulkan;
+          break;
+        case 'opencl':
+          parsedBackend = GpuBackend.opencl;
+          break;
+        default:
+          parsedBackend = GpuBackend.cpu;
+      }
+
+      // Read gpu layers
+      final userGpuLayers = storage.gpuLayers;
+
       // Optimize threads: 4 for both generation and batch processing to keep memory stable.
-      // Lower contextSize to 2048 to prevent Android Low Memory Killer (LMK) from silently killing the app.
       final params = ModelParams(
-        contextSize: 2048,
-        gpuLayers: 0, 
-        preferredBackend: GpuBackend.cpu,
+        contextSize: contextSize,
+        gpuLayers: userGpuLayers, 
+        preferredBackend: parsedBackend,
         numberOfThreads: Platform.numberOfProcessors > 4 ? 4 : 0, 
         numberOfThreadsBatch: Platform.numberOfProcessors > 4 ? 4 : 0,
       );
+
+      log?.info('Backend=$parsedBackend, GPU layers=$userGpuLayers, ctx=$contextSize, threads=${Platform.numberOfProcessors > 4 ? 4 : 0}', source: 'LLM');
 
       await _engine!.loadModel(path, modelParams: params);
       progressTimer.cancel();
@@ -140,6 +194,11 @@ class LlmService extends GetxService {
       loadingStatusMsg.value = 'Ready!';
       isLoaded.value = true;
       loadedModelPath.value = path;
+      log?.info('Model loaded successfully: $filename', source: 'LLM');
+
+      // Enable wake lock for inference on mobile (keeps app from being killed)
+      final modelName = p.basenameWithoutExtension(path);
+      await wakelockService?.enableForInference(modelName: modelName);
 
       // Brief delay to show 100%
       await Future.delayed(const Duration(milliseconds: 300));
@@ -147,6 +206,18 @@ class LlmService extends GetxService {
       isLoaded.value = false;
       loadedModelPath.value = '';
       await _fullTeardown();
+      log?.error('Model load failed: $e', source: 'LLM');
+
+      // Provide a clearer error message for common Android failures
+      if (Platform.isAndroid) {
+        final errStr = e.toString().toLowerCase();
+        if (errStr.contains('memory') || errStr.contains('alloc')) {
+          throw Exception(
+            'Not enough RAM to load this model. '
+            'Try a smaller model (e.g. Gemma 2 2B at 1.6 GB).',
+          );
+        }
+      }
       rethrow;
     } finally {
       _resetLoadingState();
@@ -328,6 +399,7 @@ class LlmService extends GetxService {
   Future<void> stopGeneration() async {
     _generateSub?.cancel();
     _generateSub = null;
+    _engine?.cancelGeneration();
     isGenerating.value = false;
   }
 
@@ -351,6 +423,12 @@ class LlmService extends GetxService {
   /// Unload the current model and free memory.
   Future<void> unloadModel() async {
     await _fullTeardown();
+
+    // Disable wake lock when model is unloaded
+    try {
+      final wakelockService = Get.find<WakelockService>();
+      await wakelockService.disable();
+    } catch (_) {}
   }
 
   /// Build a single prompt string from chat messages.

@@ -99,11 +99,157 @@ class _HomeScreenState extends State<HomeScreen> {
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width >= 768;
 
-    if (isDesktop) {
-      return _buildDesktopLayout();
-    } else {
-      return _buildMobileLayout();
-    }
+    return Stack(
+      children: [
+        if (isDesktop) _buildDesktopLayout() else _buildMobileLayout(),
+        // ── Global model loading overlay ──
+        _buildLoadingOverlay(),
+      ],
+    );
+  }
+
+  Widget _buildLoadingOverlay() {
+    return Obx(() {
+      if (!_modelCtrl.isImportingModel.value) return const SizedBox.shrink();
+
+      final progress = _modelCtrl.loadingProgress.value;
+      final percent = (progress * 100).clamp(0, 100).toInt();
+      final msg = _modelCtrl.loadingStatusMsg.value;
+      final filename = _modelCtrl.loadingModelFilename.value ?? 'Model';
+
+      // Derive a short display name from the filename
+      final displayName = filename.endsWith('.gguf')
+          ? filename.substring(0, filename.length - 5)
+          : filename;
+
+      return Material(
+        color: Colors.transparent,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.55),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 40),
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: context.bgPanel,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.accent.withValues(alpha: 0.3),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.accent.withValues(alpha: 0.1),
+                    blurRadius: 40,
+                    spreadRadius: 5,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Circular progress
+                  SizedBox(
+                    width: 80,
+                    height: 80,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        SizedBox(
+                          width: 80,
+                          height: 80,
+                          child: CircularProgressIndicator(
+                            value: progress <= 0 ? null : progress.clamp(0.0, 1.0),
+                            strokeWidth: 5,
+                            backgroundColor: context.border,
+                            valueColor: const AlwaysStoppedAnimation(
+                              AppColors.accent,
+                            ),
+                          ),
+                        ),
+                        if (percent > 0)
+                          Text(
+                            '$percent%',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: context.text,
+                            ),
+                          ),
+                        if (percent <= 0)
+                          Icon(
+                            Icons.hourglass_empty_rounded,
+                            size: 24,
+                            color: context.textD,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Model name
+                  Text(
+                    displayName,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: context.text,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Status message
+                  Text(
+                    msg.isNotEmpty ? msg : 'Importing file...',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.textM,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Hint for large models
+                  if (progress == 0)
+                    Text(
+                      'Large models (5GB+) take about 30-50 seconds for Android to process. Please wait.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: context.textD,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  const SizedBox(height: 20),
+
+                  // Cancel button
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _modelCtrl.cancelImport(),
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      label: const Text('Cancel'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.red,
+                        side: BorderSide(
+                          color: AppColors.red.withValues(alpha: 0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -251,6 +397,72 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         // Mobile top bar — minimal
         _buildMobileTopBar(),
+        // Model loading progress banner
+        Obx(() {
+          if (!_modelCtrl.isLoadingModel.value) return const SizedBox.shrink();
+          final progress = _modelCtrl.loadingProgress.value;
+          final percent = (progress * 100).clamp(0, 100).toInt();
+          final msg = _modelCtrl.loadingStatusMsg.value;
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.orange.withValues(alpha: 0.1),
+              border: Border(
+                bottom: BorderSide(color: AppColors.orange.withValues(alpha: 0.3)),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(AppColors.orange),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        msg.isNotEmpty ? msg : 'Loading model...',
+                        style: TextStyle(fontSize: 12, color: context.text),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.orange.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '$percent%',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.orange,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: progress.clamp(0.0, 1.0),
+                    minHeight: 4,
+                    backgroundColor: context.border,
+                    valueColor: const AlwaysStoppedAnimation(AppColors.orange),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
         // Chat area
         Expanded(child: _buildChatArea()),
       ],
